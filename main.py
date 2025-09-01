@@ -29,5 +29,5 @@ class Item(BaseModel):
 
 @app.get("/ping")
 async def ping():
-    await asyncio.sleep(0.2)  # Simulasi proses async (200ms)
+    await asyncio.sleep(0.3) 
     return {"message": "pong"}
