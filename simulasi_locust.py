@@ -2,6 +2,7 @@ from locust import HttpUser, task, between, constant_pacing
 import random
 import csv
 import json
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 import os
 
@@ -25,8 +26,8 @@ class UpdateLokasiUser(HttpUser):
     @task
     def update_lokasi(self):
         # Simulasi data random untuk pengujian
-        lat = random.uniform(-6.5, -6.1)     # Sekitar Jakarta
-        long = random.uniform(106.7, 107.0)
+        lat = random.uniform(-8.5, -6.1)     # Sekitar Jakarta
+        long = random.uniform(105.7, 114.0)
 
         payload = {
             "gps_imei": "No IMEI GPS",
@@ -48,7 +49,7 @@ class UpdateLokasiUser(HttpUser):
         }
 
         # print(f"Sending update for plate: {payload['plate_number']}")
-        self.client.post("/vehicle/karlo-update/", json=payload, headers=headers)
+        self.client.post("/vehicle/karlo-update2/", json=payload, headers=headers)
         # self.client.get("/patients/", headers=headers)
         # Debugging print
         # print(f"POST to /vehicle/karlo-update/")
