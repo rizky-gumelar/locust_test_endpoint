@@ -82,9 +82,120 @@ class KarloMasterFleet(models.Model):
 	info = fields.Char("Info")
 	cron_gps_dt = fields.Datetime(string="Cron GPS")
 
-	gps_area = fields.Char(string='GPS Area')
 	gps_locations = fields.One2many("sisu.karlo.master.fleet.gpslocation", "fleet_id", "GPS Location")
 	
+# ################ EDIT ################ #
+	gps_area = fields.Char(string='GPS Area', compute='_compute_gps_area', store=False)
+    
+    @api.depends('gps_locations.gpstime')
+    def _compute_gps_area(self):
+        for record in self:
+            if record.gps_locations:
+                # Ambil record dengan timestamp terbaru
+                last_location = max(record.gps_locations, key=lambda x: x.gpstime or fields.Datetime.from_string('1900-01-01'))
+                record.gps_area = last_location.gps_area
+            else:
+                record.gps_area = False
+
+    # FUNGSI UNTUK FASTAPI
+    @api.model
+    def karlo_update_location(self, data):
+        """
+        Processes location update data for a fleet vehicle.
+        This method handles all the business logic, including
+        geocoding, data validation, and database operations (create/write).
+        """
+        # --- Bagian 1: Get Address from Coordinates (mirip fungsi di FastAPI) ---
+        lat = data.get("latitude")
+        lon = data.get("longitude")
+
+        if lat is None or lon is None:
+            return {"status": "error", "message": "Latitude or Longitude is missing."}
+
+        # Menggunakan library requests untuk panggilan API, yang lebih cocok untuk kode server Odoo
+        try:
+            url = "https://app-nominatim.sibasurya.com/reverse"
+            params = {
+                "lat": lat,
+                "lon": lon,
+                "format": "jsonv2"
+            }
+            response = requests.get(url, params=params, timeout=5.0)
+            response.raise_for_status()  # Angkat error untuk kode status HTTP yang buruk
+
+            address_data = response.json()
+        except requests.exceptions.RequestException as e:
+            # Handle kesalahan koneksi atau timeout
+            return {"status": "error", "message": f"API request failed: {e}"}
+
+        # --- Bagian 2: Logika Pemrosesan dan Penyimpanan Data ---
+        # Asumsi fungsi preprocess_odoo_data() sudah ada dan dapat dipanggil
+        # atau logikanya dimasukkan langsung di sini.
+        data_dict = data  # Asumsi data.dict() dari FastAPI sudah menjadi dict di sini
+
+        # Cari fleet ID berdasarkan nopol
+        nopol = data_dict.get("plate_number")
+        fleet_id = self.search([('policenumber', '=', nopol)], limit=1)
+        if not fleet_id:
+            return {"status": "error", "message": f"Fleet with plate number {nopol} not found."}
+
+        address_line = address_data.get("address", {})
+
+        # Dapatkan ID kelurahan, dan info provinsi
+        kelurahan_model = self.env['sisu.karlo.master.kelurahan']
+        provinsi_model = self.env['sisu.karlo.master.provinsi']
+        
+        kelurahan_id = kelurahan_model.search([('kodepos', '=', address_line.get("postcode"))], limit=1)
+        
+        prov_area = None
+        if kelurahan_id:
+            kelurahan = kelurahan_model.browse(kelurahan_id).read(['provinsi_id'])[0]
+            prov_id = kelurahan.get("provinsi_id")[0] if kelurahan.get("provinsi_id") else False
+            if prov_id:
+                provinsi = provinsi_model.browse([prov_id]).read(['area'])[0]
+                prov_area = provinsi.get("area")
+
+        # Persiapkan data lokasi baru
+        new_location = {
+            "gpslatitude": data_dict.get("latitude"),
+            "gpslongitude": data_dict.get("longitude"),
+            "gpsstreet": address_data.get("display_name") or address_line.get("road") or "",
+            "kelurahan": address_line.get("village") or address_line.get("hamlet") or address_line.get("neighbourhood") or address_line.get("residential") or "",
+            "kecamatan": address_line.get("state_district") or address_line.get("city_district") or address_line.get("suburb") or "",
+            "gpscity": address_line.get("city") or address_line.get("town") or address_line.get("county") or address_line.get("municipality") or "",
+            "gpskota": address_line.get("city") or address_line.get("town") or address_line.get("county") or address_line.get("municipality") or "",
+            "gpspostcode": address_line.get("postcode") or "",
+            "gpstime": data_dict.get("lastUpdated"),
+            "gps_area": prov_area,
+            "fleet_id": fleet_id.id,
+        }
+
+        location_model = self.env['sisu.karlo.master.fleet.gpslocation']
+        existing_location = location_model.search([
+            ('fleet_id', '=', fleet_id.id),
+            ('gpstime', '=', data_dict.get("lastUpdated"))
+        ], limit=1)
+
+        if existing_location:
+            existing_location.write(new_location)
+            action = "updated"
+            location_id = existing_location.id
+        else:
+            new_record = location_model.create(new_location)
+            action = "created"
+            location_id = new_record.id
+
+        # Kembalikan hasil yang sama seperti yang diharapkan oleh FastAPI
+        return {
+            "status": "200 OK",
+            "nopol": nopol,
+            "action": action,
+            "location_id": location_id,
+            "timestamp": data_dict.get("lastUpdated")
+        }
+# ################ EDIT ################ #
+
+
 	@api.depends("policenumber")
 	def compute_name(self):
 		for record in self:

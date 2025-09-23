@@ -49,7 +49,7 @@ class UpdateLokasiUser(HttpUser):
         }
 
         # print(f"Sending update for plate: {payload['plate_number']}")
-        self.client.post("/vehicle/karlo-update2/", json=payload, headers=headers)
+        self.client.post("/vehicle/karlo-update3/", json=payload, headers=headers)
         # self.client.get("/patients/", headers=headers)
         # Debugging print
         # print(f"POST to /vehicle/karlo-update/")
